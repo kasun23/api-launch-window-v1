@@ -1,0 +1,11 @@
+{
+    "inputMessageMetadata": {
+        "messagePayload": {
+            "connectorName": "#_custom_mule_metadata_type_#",
+            "typeId": "laucnhWindow"
+        }
+    },
+    "outputMessageMetadata": {},
+    "id": "6bc200ad-ea63-4d3b-9a5c-c8e206f7e9aa",
+    "version": "5.2.0.0"
+}
