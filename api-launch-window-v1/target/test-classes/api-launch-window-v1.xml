@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:email="http://www.mulesoft.org/schema/mule/email" xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting"
+	xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd">
+	<http:listener-config name="HTTP_Listener_Configuration"
+		host="0.0.0.0" port="${http.port}" basePath="launch"
+		doc:name="HTTP Listener Configuration" />
+	<http:request-config name="HTTP_Request_Configuration"
+		host="${openweather.api.host}" port="80" basePath="/data/${openweather.api.version}"
+		doc:name="HTTP Request Configuration" />
+    <sub-flow name="allLocationsSubFlow">
+        <scripting:component doc:name="Location List">
+            <scripting:script engine="Groovy"><![CDATA[['Melbourne','Darwin','Hobart','Perth']]]></scripting:script>
+        </scripting:component>
+        <foreach collection="#[payload]" doc:name="For Each">
+            <expression-component doc:name="Set Location ID"><![CDATA[flowVars.locationId=flowVars.locationMap[payload];
+flowVars.locationName=payload;]]></expression-component>
+            <flow-ref name="openWeatherMapAPIsubFlow" doc:name="Call Openweather API"/>
+            <expression-component doc:name="Aggrigate Results"><![CDATA[flowVars.results.put(flowVars.locationName,payload)]]></expression-component>
+        </foreach>
+        <foreach collection="#[flowVars.results]" doc:name="For Each">
+            <expression-component doc:name="Get Location Name"><![CDATA[flowVars.locationName = flowVars.key;]]></expression-component>
+            <flow-ref name="applyAPIRulesSubFlow" doc:name="Apply API Rules"/>
+            <expression-component doc:name="Aggrigate Results"><![CDATA[flowVars.finalResult.put(flowVars.key,payload)]]></expression-component>
+        </foreach>
+        <set-payload value="#[flowVars.finalResult]" doc:name="Set Payload"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+launchWindows: 
+        flatten payload[0..3].launchWindows map $ orderBy $.launch_score
+
+
+]]></dw:set-payload>
+        </dw:transform-message>
+        <dw:transform-message doc:name="Transform Message" metadata:id="6bc200ad-ea63-4d3b-9a5c-c8e206f7e9aa">
+            <dw:input-payload doc:sample="/Users/kasun/Documents/jsonResponse.json" mimeType="application/json"/>
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+ payload.launchWindows[0..5]]]></dw:set-payload>
+        </dw:transform-message>
+        <logger level="INFO" doc:name="Logger"/>
+    </sub-flow>
+    <sub-flow name="applyAPIRulesSubFlow">
+        <expression-component doc:name="Get Threshold Values"><![CDATA[flowVars.maxClouds = thresholdMap.get(flowVars.locationName).cloud;
+flowVars.maxWindSpeeed = thresholdMap.get(flowVars.locationName).windspeed;
+]]></expression-component>
+        <dw:transform-message doc:name="Transform Message" metadata:id="204949f5-f46d-40a5-a6e8-08d75a29e14b">
+            <dw:input-payload doc:sample="/Users/kasun/Documents/jsonResponse.json" mimeType="application/json"/>
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+//flowVars.maxClouds   flowVars.maxWindSpeeed
+---
+launchWindows:
+payload.list filter ($.clouds.all < flowVars.maxClouds  or $.wind.speed < flowVars.maxWindSpeeed) map
+{	
+		
+	location : flowVars.locationName,
+	date_time :$.dt_txt,
+	launch_score:calculateScore($.main.temp,$.wind.speed,$.wind.deg)	
+		
+} 
+]]></dw:set-payload>
+        </dw:transform-message>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+launchWindows:(payload.launchWindows orderBy $.launch_score)
+]]></dw:set-payload>
+        </dw:transform-message>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+launchWindows:(payload.launchWindows) [0..5]]]></dw:set-payload>
+        </dw:transform-message>
+    </sub-flow>
+	<sub-flow name="openWeatherMapAPIsubFlow">
+		<http:request config-ref="HTTP_Request_Configuration"
+			path="forecast" method="GET" doc:name="Call openweather API">
+			<http:request-builder>
+				<http:query-param paramName="APPID"
+					value="${openweather.api.key}" />
+				<http:query-param paramName="id"
+					value="#[flowVars.locationId]" />
+			</http:request-builder>
+		</http:request>
+        <object-to-string-transformer mimeType="application/json" doc:name="Object to String"/>
+        <json:json-to-object-transformer mimeType="application/json" doc:name="JSON to Object"/>
+	</sub-flow>
+	<flow name="mainApiLaunchWindowV1Flow">
+		<http:listener config-ref="HTTP_Listener_Configuration"
+			path="/locations" allowedMethods="GET" doc:name="Launch WIndow API" />
+		<scripting:component doc:name="Location Rules Map">
+			<scripting:script engine="Groovy"><![CDATA[def locationMap = [Melbourne:'7839805',Darwin:'2073124',Hobart:'2163355',Perth:'2063523'];
+def thresholdMap = [Melbourne:[cloud:50,windspeed:20],Darwin:[cloud:40,windspeed:15],Hobart:[cloud:60,windspeed:10],Perth:[cloud:30,windspeed:5]];
+message.setInvocationProperty('locationMap',locationMap);
+message.setInvocationProperty('thresholdMap',thresholdMap);
+message.setInvocationProperty('results',[:]);
+message.setInvocationProperty('finalResult',[:]);
+]]></scripting:script>
+		</scripting:component>
+		<choice doc:name="All Locations or One">
+			<when expression="#[message.inboundProperties.'http.query.params'.size() != 0]">
+				<scripting:component doc:name="Resolve Location ID by Name">
+					<scripting:script engine="Groovy"><![CDATA[def locationMap = message.getInvocationProperty('locationMap');
+def locationId = locationMap.get(message.getInboundProperty('http.query.params').get('name'));
+message.setInvocationProperty('locationName',message.getInboundProperty('http.query.params').get('name'));
+message.setInvocationProperty('locationId',locationId);]]></scripting:script>
+				</scripting:component>
+				<flow-ref name="openWeatherMapAPIsubFlow" doc:name="Call openweather API" />
+                <flow-ref name="applyAPIRulesSubFlow" doc:name="Apply API Rules"/>
+                <json:object-to-json-transformer mimeType="application/json" doc:name="Object to JSON"/>
+			</when>
+			<otherwise>
+                <flow-ref name="allLocationsSubFlow" doc:name="All Locations"/>
+			</otherwise>
+		</choice>
+		<exception-strategy ref="globalCatch_Exception_Strategy"
+			doc:name="Reference Exception Strategy" />
+	</flow>
+</mule>
