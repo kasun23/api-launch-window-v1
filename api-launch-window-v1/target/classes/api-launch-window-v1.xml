@@ -52,6 +52,7 @@ launchWindows:
             <dw:set-payload><![CDATA[%dw 1.0
 %output application/json
 ---
+launchWindows:
  payload.launchWindows[0..5]]]></dw:set-payload>
         </dw:transform-message>
         <logger level="INFO" doc:name="Logger"/>
